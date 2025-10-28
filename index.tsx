@@ -7,6 +7,11 @@ import React, { useState, FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI } from "@google/genai";
 
+interface Comment {
+  id: string;
+  text: string;
+}
+
 interface Video {
   id: string;
   file: File;
@@ -14,6 +19,9 @@ interface Video {
   description: string;
   url: string;
   isSubscribed: boolean;
+  comments: Comment[];
+  likes: number;
+  isLiked: boolean;
 }
 
 const App: React.FC = () => {
@@ -24,6 +32,7 @@ const App: React.FC = () => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [newComment, setNewComment] = useState('');
 
   const [videoDescription, setVideoDescription] = useState('');
   const [analysisPrompt, setAnalysisPrompt] = useState('');
@@ -42,6 +51,9 @@ const App: React.FC = () => {
         description,
         url: URL.createObjectURL(file),
         isSubscribed: false,
+        comments: [],
+        likes: Math.floor(Math.random() * 5000) + 100, // Mock initial likes
+        isLiked: false,
       };
       const updatedVideos = [...videos, newVideo];
       setVideos(updatedVideos);
@@ -52,10 +64,28 @@ const App: React.FC = () => {
       setDescription('');
       setFile(null);
       (document.getElementById('video-file') as HTMLInputElement).value = '';
-      setAiResult(null);
-      setVideoDescription('');
-      setAnalysisPrompt('');
+      resetAIState();
     }
+  };
+
+  const handlePostComment = (e: FormEvent) => {
+    e.preventDefault();
+    if (!newComment.trim() || !currentVideo) return;
+
+    const newCommentObj: Comment = {
+      id: crypto.randomUUID(),
+      text: newComment.trim(),
+    };
+
+    const updatedVideos = videos.map(video =>
+      video.id === currentVideo.id
+        ? { ...video, comments: [...video.comments, newCommentObj] }
+        : video
+    );
+
+    setVideos(updatedVideos);
+    setCurrentVideo(prev => prev ? { ...prev, comments: [...prev.comments, newCommentObj] } : null);
+    setNewComment(''); // Reset input
   };
 
   const handleAnalyzeVideo = async () => {
@@ -108,6 +138,27 @@ const App: React.FC = () => {
 
     setVideos(updatedVideos);
     setCurrentVideo(prev => prev ? { ...prev, isSubscribed: !prev.isSubscribed } : null);
+  };
+
+  const handleLikeToggle = () => {
+    if (!currentVideo) return;
+
+    const updatedVideos = videos.map(video => {
+      if (video.id === currentVideo.id) {
+        const newLikedState = !video.isLiked;
+        const newLikes = newLikedState ? video.likes + 1 : video.likes - 1;
+        return { ...video, isLiked: newLikedState, likes: newLikes };
+      }
+      return video;
+    });
+
+    setVideos(updatedVideos);
+    setCurrentVideo(prev => {
+      if (!prev) return null;
+      const newLikedState = !prev.isLiked;
+      const newLikes = newLikedState ? prev.likes + 1 : prev.likes - 1;
+      return { ...prev, isLiked: newLikedState, likes: newLikes };
+    });
   };
 
   const filteredVideos = videos.filter(video =>
@@ -202,13 +253,46 @@ const App: React.FC = () => {
                   <h3>{currentVideo.title}</h3>
                   <p>{currentVideo.description}</p>
                 </div>
-                <button
-                  className={`subscribe-btn ${currentVideo.isSubscribed ? 'subscribed' : ''}`}
-                  onClick={handleSubscribeToggle}
-                >
-                  {currentVideo.isSubscribed ? 'Subscribed' : 'Subscribe'}
-                </button>
+                <div className="video-actions">
+                  <button 
+                    className={`like-btn ${currentVideo.isLiked ? 'liked' : ''}`} 
+                    onClick={handleLikeToggle}
+                    aria-label="Like video"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"></path></svg>
+                    <span>{currentVideo.likes.toLocaleString()}</span>
+                  </button>
+                  <button
+                    className={`subscribe-btn ${currentVideo.isSubscribed ? 'subscribed' : ''}`}
+                    onClick={handleSubscribeToggle}
+                  >
+                    {currentVideo.isSubscribed ? 'Subscribed' : 'Subscribe'}
+                  </button>
+                </div>
               </div>
+
+              <div className="card comments-section">
+                <h4>Comments ({currentVideo.comments.length})</h4>
+                <form className="comment-form" onSubmit={handlePostComment}>
+                  <textarea
+                    value={newComment}
+                    onChange={(e) => setNewComment(e.target.value)}
+                    placeholder="Add a comment..."
+                    required
+                  />
+                  <button type="submit" disabled={!newComment.trim()}>Post</button>
+                </form>
+                <ul className="comments-list">
+                  {currentVideo.comments.length > 0 ? (
+                    currentVideo.comments.map(comment => (
+                      <li key={comment.id}>{comment.text}</li>
+                    ))
+                  ) : (
+                    <p className="no-comments">No comments yet. Be the first to comment!</p>
+                  )}
+                </ul>
+              </div>
+
               <div className="card ai-analysis">
                 <h2>🤖 AI Content Analysis</h2>
                  <div className="form-group">

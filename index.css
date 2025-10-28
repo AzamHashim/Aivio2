@@ -249,7 +249,7 @@ button:disabled {
 .video-info {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 1rem;
 }
 
@@ -266,15 +266,57 @@ button:disabled {
   color: var(--secondary-text);
 }
 
+.video-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-shrink: 0;
+}
+
+.like-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.2rem;
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+  background-color: var(--tertiary-bg);
+  color: var(--primary-text);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+  width: auto;
+}
+
+.like-btn svg {
+  fill: currentColor;
+  transition: fill 0.2s;
+}
+
+.like-btn:hover {
+  background-color: #e2e6ea;
+}
+
+.like-btn.liked {
+  background-color: var(--accent-color);
+  color: #fff;
+  border-color: var(--accent-color);
+}
+
+.like-btn.liked:hover {
+  background-color: var(--accent-hover);
+}
+
+
 .subscribe-btn {
   padding: 0.6rem 1.2rem;
   border-radius: 20px;
-  border: none;
+  border: 1px solid transparent;
   font-weight: 500;
   cursor: pointer;
   background-color: var(--accent-color);
   color: #fff;
-  transition: background-color 0.2s;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
   white-space: nowrap;
   width: auto;
 }
@@ -287,6 +329,60 @@ button:disabled {
   background-color: var(--tertiary-bg);
   color: var(--secondary-text);
   border: 1px solid var(--border-color);
+}
+
+.comments-section {
+  margin-top: 2rem;
+}
+
+.comments-section h4 {
+  font-size: 1.3rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.comment-form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+}
+
+.comment-form textarea {
+  flex-grow: 1;
+  min-height: 40px;
+  height: 50px;
+}
+
+.comment-form button {
+  width: auto;
+  padding: 0.75rem 1.2rem;
+  flex-shrink: 0;
+}
+
+.comments-list {
+  list-style: none;
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.comments-list li {
+  background-color: var(--tertiary-bg);
+  padding: 0.8rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  color: var(--primary-text);
+  word-wrap: break-word;
+}
+
+.no-comments {
+  color: var(--secondary-text);
+  padding: 1rem 0;
+  text-align: center;
 }
 
 .ai-analysis {
@@ -384,5 +480,12 @@ button:disabled {
 @media (max-width: 768px) {
     main {
         flex-direction: column;
+    }
+    .video-info {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .video-actions {
+      margin-top: 1rem;
     }
 }
