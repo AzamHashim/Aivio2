@@ -219,13 +219,13 @@ button:disabled {
   cursor: not-allowed;
 }
 
-.video-list ul, .user-videos ul {
+.video-list ul, .user-videos ul, .subscriptions ul {
   list-style: none;
   max-height: 400px;
   overflow-y: auto;
 }
 
-.video-list li, .user-videos li {
+.video-list li, .user-videos li, .subscriptions li {
   padding: 0.8rem;
   border-radius: 6px;
   cursor: pointer;
@@ -233,11 +233,12 @@ button:disabled {
   border-bottom: 1px solid var(--border-color);
 }
 
-.user-videos li {
+.user-videos li, .subscriptions li {
   cursor: default;
+  font-weight: 500;
 }
 
-.video-list li:last-child, .user-videos li:last-child {
+.video-list li:last-child, .user-videos li:last-child, .subscriptions li:last-child {
     border-bottom: none;
 }
 
@@ -331,6 +332,13 @@ button:disabled {
     border-radius: 15px;
     font-size: 0.9rem;
     font-weight: 500;
+    margin-bottom: 0.75rem;
+}
+
+.video-meta .video-channel-name {
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: var(--secondary-text);
     margin-bottom: 0.75rem;
 }
 
@@ -563,39 +571,68 @@ button:disabled {
 .video-controls-overlay {
     position: absolute;
     bottom: 0;
+    left: 0;
     right: 0;
-    padding: 10px;
+    padding: 8px 12px;
     display: flex;
-    flex-direction: column-reverse;
-    align-items: flex-end;
+    flex-direction: column;
     opacity: 0;
     transition: opacity 0.3s;
+    background: linear-gradient(to top, rgba(0,0,0,0.7), transparent);
 }
 .video-player-container:hover .video-controls-overlay {
     opacity: 1;
 }
-
-.settings-btn {
-    background: rgba(40, 40, 40, 0.7);
+.controls-bottom-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+}
+.controls-left, .controls-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+.controls-right {
+    margin-left: auto;
+}
+.control-btn {
+    background: transparent;
     border: none;
-    border-radius: 50%;
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
     padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
+    color: #fff;
 }
-.settings-btn svg {
+.control-btn svg {
     fill: #fff;
+    width: 24px;
+    height: 24px;
 }
+.time-display {
+    color: #fff;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+.settings-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
 .quality-menu {
     list-style: none;
     background: rgba(40, 40, 40, 0.9);
     border-radius: 6px;
     padding: 0.5rem;
-    margin-bottom: 0.5rem;
     width: 150px;
+    position: absolute;
+    bottom: 120%; /* Position above the button */
+    right: 0;
 }
 .quality-menu li {
     padding: 0.5rem;
@@ -626,6 +663,69 @@ button:disabled {
 @keyframes fadeInOut {
   0%, 100% { opacity: 0; }
   25%, 75% { opacity: 1; }
+}
+
+/* Custom Sliders */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+/* Progress Bar */
+.progress-bar-container {
+  width: 100%;
+  padding: 5px 0;
+}
+.progress-bar {
+  width: 100%;
+  height: 4px;
+}
+.progress-bar::-webkit-slider-runnable-track {
+  background: linear-gradient(to right, var(--accent-color) var(--progress-percent, 0%), rgba(255,255,255,0.3) var(--progress-percent, 0%));
+  height: 4px;
+  border-radius: 2px;
+}
+.progress-bar::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -6px; /* center thumb */
+  background-color: #fff;
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+.progress-bar:hover::-webkit-slider-thumb {
+  transform: scale(1.1);
+}
+
+/* Volume Slider */
+.volume-container {
+  display: flex;
+  align-items: center;
+}
+.volume-slider {
+  width: 0;
+  height: 3px;
+  transition: width 0.3s ease;
+}
+.volume-container:hover .volume-slider {
+  width: 80px;
+}
+.volume-slider::-webkit-slider-runnable-track {
+  background: linear-gradient(to right, #fff var(--volume-percent, 100%), rgba(255,255,255,0.3) var(--volume-percent, 100%));
+  height: 3px;
+  border-radius: 2px;
+}
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -5px;
+  background-color: #fff;
+  height: 12px;
+  width: 12px;
+  border-radius: 50%;
 }
 
 
@@ -686,7 +786,7 @@ button:disabled {
     background-color: #5a6268;
 }
 
-.user-videos {
+.user-videos, .subscriptions {
   margin-top: 1rem;
 }
 

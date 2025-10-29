@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, FormEvent, useEffect } from 'react';
+import React, { useState, FormEvent, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI } from "@google/genai";
 
@@ -12,6 +12,19 @@ interface Comment {
   text: string;
 }
 
+interface Channel {
+  id: string;
+  name: string;
+  subscriberCount: number;
+}
+
+const mockChannels: Channel[] = [
+  { id: 'ch_alexdoe', name: 'Alex Doe Originals', subscriberCount: 125000 },
+  { id: 'ch_nature', name: 'Nature Wonders', subscriberCount: 840000 },
+  { id: 'ch_tech', name: 'TechExplained', subscriberCount: 230000 },
+  { id: 'ch_gaming', name: 'Gaming Zone', subscriberCount: 560000 },
+];
+
 interface Video {
   id: string;
   file: File;
@@ -19,7 +32,7 @@ interface Video {
   description: string;
   category: string;
   url: string;
-  isSubscribed: boolean;
+  channelId: string;
   comments: Comment[];
   likes: number;
   isLiked: boolean;
@@ -33,6 +46,7 @@ interface Notification {
 interface User {
   name: string;
   username: string;
+  subscribedChannelIds: string[];
 }
 
 const App: React.FC = () => {
@@ -41,7 +55,7 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [currentView, setCurrentView] = useState<'home' | 'profile'>('home');
-  const [user, setUser] = useState<User>({ name: 'Alex Doe', username: '@alexdoe' });
+  const [user, setUser] = useState<User>({ name: 'Alex Doe', username: '@alexdoe', subscribedChannelIds: ['ch_tech', 'ch_gaming'] });
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editName, setEditName] = useState(user.name);
   const [editUsername, setEditUsername] = useState(user.username);
@@ -61,6 +75,13 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   // Video player state
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
   const [videoQuality, setVideoQuality] = useState('1080p');
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [qualityChangeIndicator, setQualityChangeIndicator] = useState('');
@@ -95,7 +116,7 @@ const App: React.FC = () => {
         description,
         category,
         url: URL.createObjectURL(file),
-        isSubscribed: false,
+        channelId: 'ch_alexdoe', // All user uploads go to their own channel
         comments: [],
         likes: Math.floor(Math.random() * 5000) + 100, // Mock initial likes
         isLiked: false,
@@ -176,17 +197,18 @@ const App: React.FC = () => {
   const handleSubscribeToggle = () => {
     if (!currentVideo) return;
     
-    const newSubState = !currentVideo.isSubscribed;
-    showNotification(newSubState ? 'Subscribed!' : 'Unsubscribed.');
+    const channelId = currentVideo.channelId;
+    const isCurrentlySubscribed = user.subscribedChannelIds.includes(channelId);
 
-    const updatedVideos = videos.map(video =>
-      video.id === currentVideo.id
-        ? { ...video, isSubscribed: newSubState }
-        : video
-    );
+    showNotification(isCurrentlySubscribed ? 'Unsubscribed.' : 'Subscribed!');
 
-    setVideos(updatedVideos);
-    setCurrentVideo(prev => prev ? { ...prev, isSubscribed: newSubState } : null);
+    let updatedSubscribedIds;
+    if (isCurrentlySubscribed) {
+        updatedSubscribedIds = user.subscribedChannelIds.filter(id => id !== channelId);
+    } else {
+        updatedSubscribedIds = [...user.subscribedChannelIds, channelId];
+    }
+    setUser(prevUser => ({...prevUser, subscribedChannelIds: updatedSubscribedIds }));
   };
 
   const handleLikeToggle = () => {
@@ -213,7 +235,7 @@ const App: React.FC = () => {
 
   const handleSaveProfile = (e: FormEvent) => {
     e.preventDefault();
-    setUser({ name: editName, username: editUsername });
+    setUser(prev => ({ ...prev, name: editName, username: editUsername }));
     setIsEditingProfile(false);
     showNotification('Profile updated!');
   };
@@ -230,30 +252,146 @@ const App: React.FC = () => {
     setQualityChangeIndicator(`Quality set to ${quality}`);
   };
 
+  // Custom Video Player Controls
+  const togglePlayPause = () => {
+    if (videoRef.current) {
+        if (videoRef.current.paused) {
+            videoRef.current.play();
+        } else {
+            videoRef.current.pause();
+        }
+        setIsPlaying(!videoRef.current.paused);
+    }
+  };
+
+  const handleProgressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newTime = (Number(e.target.value) / 100) * duration;
+    if (videoRef.current) {
+        videoRef.current.currentTime = newTime;
+    }
+    setProgress(Number(e.target.value));
+  };
+  
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newVolume = Number(e.target.value);
+    setVolume(newVolume);
+    if(videoRef.current) {
+        videoRef.current.volume = newVolume;
+        videoRef.current.muted = newVolume === 0;
+    }
+    setIsMuted(newVolume === 0);
+  };
+  
+  const toggleMute = () => {
+    if (videoRef.current) {
+        const newMutedState = !videoRef.current.muted;
+        videoRef.current.muted = newMutedState;
+        setIsMuted(newMutedState);
+        if(!newMutedState && volume === 0) {
+            setVolume(0.5); // Restore to a default volume if unmuting from 0
+            videoRef.current.volume = 0.5;
+        } else if (newMutedState) {
+            setVolume(0);
+        }
+    }
+  };
+  
+  const formatTime = (time: number) => {
+      const minutes = Math.floor(time / 60);
+      const seconds = Math.floor(time % 60);
+      return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
 
   const filteredVideos = videos.filter(video =>
     video.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const renderHomeView = () => (
+  const renderHomeView = () => {
+      const channel = currentVideo ? mockChannels.find(c => c.id === currentVideo.channelId) : null;
+      const isSubscribed = currentVideo ? user.subscribedChannelIds.includes(currentVideo.channelId) : false;
+
+      return (
       <main>
         <div className="main-column">
           <div className="video-player-container">
             {currentVideo ? (
               <>
-                <video src={currentVideo.url} controls autoPlay key={currentVideo.id}></video>
+                <video 
+                    ref={videoRef}
+                    src={currentVideo.url} 
+                    autoPlay 
+                    key={currentVideo.id}
+                    onPlay={() => setIsPlaying(true)}
+                    onPause={() => setIsPlaying(false)}
+                    onTimeUpdate={(e) => {
+                        setCurrentTime(e.currentTarget.currentTime);
+                        setProgress((e.currentTarget.currentTime / duration) * 100);
+                    }}
+                    onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+                    onVolumeChange={(e) => {
+                        setVolume(e.currentTarget.volume);
+                        setIsMuted(e.currentTarget.muted);
+                    }}
+                    onClick={togglePlayPause}
+                ></video>
                 {qualityChangeIndicator && <div className="quality-indicator">{qualityChangeIndicator}</div>}
                 <div className="video-controls-overlay">
-                    {showQualityMenu && (
-                        <ul className="quality-menu">
-                            <li onClick={() => handleQualityChange('1080p')} className={videoQuality === '1080p' ? 'active' : ''}>1080p (High)</li>
-                            <li onClick={() => handleQualityChange('720p')} className={videoQuality === '720p' ? 'active' : ''}>720p (Medium)</li>
-                            <li onClick={() => handleQualityChange('480p')} className={videoQuality === '480p' ? 'active' : ''}>480p (Low)</li>
-                        </ul>
-                    )}
-                    <button className="settings-btn" onClick={() => setShowQualityMenu(prev => !prev)} aria-label="Video settings">
-                        <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
-                    </button>
+                    <div className="progress-bar-container">
+                      <input 
+                        type="range" 
+                        min="0" 
+                        max="100" 
+                        value={progress || 0}
+                        onChange={handleProgressChange}
+                        className="progress-bar"
+                        style={{'--progress-percent': `${progress}%`} as React.CSSProperties}
+                        />
+                    </div>
+                    <div className="controls-bottom-row">
+                        <div className="controls-left">
+                           <button className="control-btn" onClick={togglePlayPause}>
+                            {isPlaying ? (
+                                <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>
+                            ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M8 5v14l11-7z"></path></svg>
+                            )}
+                           </button>
+                           <div className="volume-container">
+                            <button className="control-btn" onClick={toggleMute}>
+                                {isMuted || volume === 0 ? (
+                                    <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"></path></svg>
+                                ) : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c3.89-.91 7-4.49 7-8.77s-3.11-7.86-7-8.77z"></path></svg>
+                                )}
+                            </button>
+                            <input 
+                                type="range" 
+                                min="0" 
+                                max="1" 
+                                step="0.05" 
+                                value={isMuted ? 0 : volume} 
+                                onChange={handleVolumeChange} 
+                                className="volume-slider" 
+                                style={{'--volume-percent': `${isMuted ? 0 : volume * 100}%`} as React.CSSProperties}
+                            />
+                           </div>
+                        </div>
+                         <div className="controls-right">
+                            <span className="time-display">{formatTime(currentTime)} / {formatTime(duration)}</span>
+                            <div className="settings-container">
+                                <button className="control-btn settings-btn" onClick={() => setShowQualityMenu(prev => !prev)} aria-label="Video settings">
+                                    <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
+                                </button>
+                                {showQualityMenu && (
+                                    <ul className="quality-menu">
+                                        <li onClick={() => handleQualityChange('1080p')} className={videoQuality === '1080p' ? 'active' : ''}>1080p (High)</li>
+                                        <li onClick={() => handleQualityChange('720p')} className={videoQuality === '720p' ? 'active' : ''}>720p (Medium)</li>
+                                        <li onClick={() => handleQualityChange('480p')} className={videoQuality === '480p' ? 'active' : ''}>480p (Low)</li>
+                                    </ul>
+                                )}
+                            </div>
+                         </div>
+                    </div>
                 </div>
               </>
             ) : (
@@ -268,6 +406,7 @@ const App: React.FC = () => {
                 <div className="video-meta">
                   <h3>{currentVideo.title}</h3>
                   <p className="video-category">{currentVideo.category}</p>
+                  <p className="video-channel-name">{channel ? channel.name : 'Unknown Channel'}</p>
                   <p>{currentVideo.description}</p>
                 </div>
                 <div className="video-actions">
@@ -280,10 +419,10 @@ const App: React.FC = () => {
                     <span>{currentVideo.likes.toLocaleString()}</span>
                   </button>
                   <button
-                    className={`subscribe-btn ${currentVideo.isSubscribed ? 'subscribed' : ''}`}
+                    className={`subscribe-btn ${isSubscribed ? 'subscribed' : ''}`}
                     onClick={handleSubscribeToggle}
                   >
-                    {currentVideo.isSubscribed ? 'Subscribed' : 'Subscribe'}
+                    {isSubscribed ? 'Subscribed' : 'Subscribe'}
                   </button>
                 </div>
               </div>
@@ -439,7 +578,8 @@ const App: React.FC = () => {
           )}
         </div>
       </main>
-  );
+    );
+  }
 
   const renderProfileView = () => (
     <main className="profile-page">
@@ -483,6 +623,19 @@ const App: React.FC = () => {
               <button className="edit-btn" onClick={() => setIsEditingProfile(true)}>Edit Profile</button>
             </div>
           )}
+        </div>
+         <div className="card subscriptions">
+            <h2>My Subscriptions ({user.subscribedChannelIds.length})</h2>
+            {user.subscribedChannelIds.length > 0 ? (
+                <ul>
+                    {user.subscribedChannelIds.map(channelId => {
+                        const channel = mockChannels.find(c => c.id === channelId);
+                        return channel ? <li key={channel.id}>{channel.name}</li> : null;
+                    })}
+                </ul>
+            ) : (
+                <p className="no-videos">You haven't subscribed to any channels yet.</p>
+            )}
         </div>
         <div className="card user-videos">
           <h2>My Uploads ({videos.length})</h2>
