@@ -1,5 +1,7 @@
 {
   "name": "Aivio",
   "description": "A platform where you can upload and watch video. The platform can be monetize and train AI based on the video.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "microphone"
+  ]
 }

@@ -5,7 +5,7 @@
 
 import React, { useState, FormEvent, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, LiveServerMessage, Modality, Blob, LiveSession } from "@google/genai";
 
 interface Comment {
   id: string;
@@ -54,7 +54,7 @@ const App: React.FC = () => {
   const [currentVideo, setCurrentVideo] = useState<Video | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [currentView, setCurrentView] = useState<'home' | 'profile'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'profile' | 'live'>('home');
   const [user, setUser] = useState<User>({ name: 'Alex Doe', username: '@alexdoe', subscribedChannelIds: ['ch_tech', 'ch_gaming'] });
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editName, setEditName] = useState(user.name);
@@ -306,6 +306,58 @@ const App: React.FC = () => {
     video.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+    // ********** START: Audio Helper Functions for Live **********
+  const decode = (base64: string) => {
+    const binaryString = atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
+  };
+
+  const decodeAudioData = async (
+    data: Uint8Array,
+    ctx: AudioContext,
+    sampleRate: number,
+    numChannels: number,
+  ): Promise<AudioBuffer> => {
+    const dataInt16 = new Int16Array(data.buffer);
+    const frameCount = dataInt16.length / numChannels;
+    const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+    for (let channel = 0; channel < numChannels; channel++) {
+      const channelData = buffer.getChannelData(channel);
+      for (let i = 0; i < frameCount; i++) {
+        channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+      }
+    }
+    return buffer;
+  };
+  
+  const encode = (bytes: Uint8Array) => {
+    let binary = '';
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  };
+
+  const createBlob = (data: Float32Array): Blob => {
+    const l = data.length;
+    const int16 = new Int16Array(l);
+    for (let i = 0; i < l; i++) {
+      int16[i] = data[i] * 32768;
+    }
+    return {
+      data: encode(new Uint8Array(int16.buffer)),
+      mimeType: 'audio/pcm;rate=16000',
+    };
+  };
+  // ********** END: Audio Helper Functions for Live **********
+
   const renderHomeView = () => {
       const channel = currentVideo ? mockChannels.find(c => c.id === currentVideo.channelId) : null;
       const isSubscribed = currentVideo ? user.subscribedChannelIds.includes(currentVideo.channelId) : false;
@@ -380,7 +432,7 @@ const App: React.FC = () => {
                             <span className="time-display">{formatTime(currentTime)} / {formatTime(duration)}</span>
                             <div className="settings-container">
                                 <button className="control-btn settings-btn" onClick={() => setShowQualityMenu(prev => !prev)} aria-label="Video settings">
-                                    <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
+                                    <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
                                 </button>
                                 {showQualityMenu && (
                                     <ul className="quality-menu">
@@ -658,6 +710,241 @@ const App: React.FC = () => {
     </main>
   );
 
+  const LiveView: React.FC = () => {
+    const [connectionState, setConnectionState] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [history, setHistory] = useState<{ author: 'You' | 'Gemini', text: string }[]>([]);
+    const [currentInput, setCurrentInput] = useState('');
+    const [currentOutput, setCurrentOutput] = useState('');
+
+    const sessionRef = useRef<Promise<LiveSession> | null>(null);
+    const inputAudioContextRef = useRef<AudioContext | null>(null);
+    const outputAudioContextRef = useRef<AudioContext | null>(null);
+    const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
+    const mediaStreamSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+    const mediaStreamRef = useRef<MediaStream | null>(null);
+
+    const nextStartTimeRef = useRef(0);
+    const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+
+    const cleanupAudio = () => {
+        if (scriptProcessorRef.current && mediaStreamSourceRef.current) {
+            scriptProcessorRef.current.disconnect();
+            mediaStreamSourceRef.current.disconnect();
+            scriptProcessorRef.current = null;
+            mediaStreamSourceRef.current = null;
+        }
+        if (mediaStreamRef.current) {
+            mediaStreamRef.current.getTracks().forEach(track => track.stop());
+            mediaStreamRef.current = null;
+        }
+        if (inputAudioContextRef.current && inputAudioContextRef.current.state !== 'closed') {
+            inputAudioContextRef.current.close();
+            inputAudioContextRef.current = null;
+        }
+        if (outputAudioContextRef.current && outputAudioContextRef.current.state !== 'closed') {
+            outputAudioContextRef.current.close();
+            outputAudioContextRef.current = null;
+        }
+    };
+    
+    const stopLiveSession = async () => {
+        if (sessionRef.current) {
+            const session = await sessionRef.current;
+            session.close();
+            sessionRef.current = null;
+        }
+        cleanupAudio();
+        setConnectionState('disconnected');
+        setCurrentInput('');
+        setCurrentOutput('');
+    };
+
+    const startLiveSession = async () => {
+        setConnectionState('connecting');
+        setErrorMessage(null);
+        setHistory([]);
+        
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaStreamRef.current = stream;
+
+            // FIX: Cast window to `any` to allow access to the vendor-prefixed `webkitAudioContext` for broader browser compatibility.
+            inputAudioContextRef.current = new ((window as any).AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+            // FIX: Cast window to `any` to allow access to the vendor-prefixed `webkitAudioContext` for broader browser compatibility.
+            outputAudioContextRef.current = new ((window as any).AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+            
+            sessionRef.current = ai.live.connect({
+                model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+                callbacks: {
+                    onopen: () => {
+                        setConnectionState('connected');
+
+                        const source = inputAudioContextRef.current!.createMediaStreamSource(stream);
+                        mediaStreamSourceRef.current = source;
+                        
+                        const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(4096, 1, 1);
+                        scriptProcessorRef.current = scriptProcessor;
+
+                        scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
+                            const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
+                            const pcmBlob = createBlob(inputData);
+                            if (sessionRef.current) {
+                                sessionRef.current.then((session) => {
+                                    session.sendRealtimeInput({ media: pcmBlob });
+                                });
+                            }
+                        };
+                        source.connect(scriptProcessor);
+                        scriptProcessor.connect(inputAudioContextRef.current!.destination);
+                    },
+                    onmessage: async (message: LiveServerMessage) => {
+                        let tempInput = '';
+                        if (message.serverContent?.inputTranscription) {
+                            tempInput = message.serverContent.inputTranscription.text;
+                            setCurrentInput(prev => prev + tempInput);
+                        }
+                        
+                        let tempOutput = '';
+                        if (message.serverContent?.outputTranscription) {
+                            tempOutput = message.serverContent.outputTranscription.text;
+                            setCurrentOutput(prev => prev + tempOutput);
+                        }
+
+                        if (message.serverContent?.turnComplete) {
+                            const fullInput = currentInput + tempInput;
+                            const fullOutput = currentOutput + tempOutput;
+                            
+                            setHistory(prev => [
+                                ...prev,
+                                { author: 'You', text: fullInput },
+                                { author: 'Gemini', text: fullOutput }
+                            ]);
+                            setCurrentInput('');
+                            setCurrentOutput('');
+                        }
+
+                        const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData.data;
+                        if (base64Audio) {
+                            const outputAudioContext = outputAudioContextRef.current!;
+                            nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outputAudioContext.currentTime);
+                            
+                            const audioBuffer = await decodeAudioData(decode(base64Audio), outputAudioContext, 24000, 1);
+                            
+                            const source = outputAudioContext.createBufferSource();
+                            source.buffer = audioBuffer;
+                            source.connect(outputAudioContext.destination);
+                            
+                            source.addEventListener('ended', () => {
+                                sourcesRef.current.delete(source);
+                            });
+
+                            source.start(nextStartTimeRef.current);
+                            nextStartTimeRef.current += audioBuffer.duration;
+                            sourcesRef.current.add(source);
+                        }
+                    },
+                    onerror: (e: ErrorEvent) => {
+                        console.error('Gemini Live Error:', e);
+                        setErrorMessage('An error occurred with the live session. Please try again.');
+                        setConnectionState('error');
+                        cleanupAudio();
+                    },
+                    onclose: (e: CloseEvent) => {
+                        console.log('Gemini Live session closed');
+                        setConnectionState('disconnected');
+                        cleanupAudio();
+                    },
+                },
+                config: {
+                    responseModalities: [Modality.AUDIO],
+                    inputAudioTranscription: {},
+                    outputAudioTranscription: {},
+                    speechConfig: {
+                        voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
+                    },
+                },
+            });
+
+        } catch (err) {
+            console.error("Failed to start live session:", err);
+            setErrorMessage("Could not access microphone. Please grant permission and try again.");
+            setConnectionState('error');
+        }
+    };
+    
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            if (sessionRef.current) {
+                stopLiveSession();
+            }
+        };
+    }, []);
+    
+    const renderStatusIndicator = () => {
+        let color, text;
+        switch(connectionState) {
+            case 'connected': color = 'var(--success-color)'; text = 'Connected'; break;
+            case 'connecting': color = '#f0ad4e'; text = 'Connecting...'; break;
+            case 'error': color = 'var(--error-color)'; text = 'Error'; break;
+            case 'disconnected':
+            default: color = 'var(--secondary-text)'; text = 'Disconnected'; break;
+        }
+        return (
+            <div className="live-status">
+                <span className="status-dot" style={{ backgroundColor: color }}></span>
+                <span>{text}</span>
+            </div>
+        );
+    };
+
+    return (
+        <main className="live-page">
+            <div className="live-content">
+                <button className="back-btn" onClick={() => setCurrentView('home')}>&larr; Back to Home</button>
+                <div className="card live-card">
+                    <div className="live-header">
+                        <h2>🤖 Live AI Conversation</h2>
+                        {renderStatusIndicator()}
+                    </div>
+                    <div className="transcription-area">
+                        {history.length === 0 && connectionState === 'disconnected' && !currentInput && !currentOutput &&(
+                            <p className="no-transcription">Click "Start Live Chat" to begin a conversation.</p>
+                        )}
+                        <div className="transcription-history">
+                            {history.map((entry, index) => (
+                                <div key={index} className={`chat-bubble ${entry.author === 'You' ? 'user-bubble' : 'gemini-bubble'}`}>
+                                    <strong>{entry.author}:</strong> {entry.text}
+                                </div>
+                            ))}
+                        </div>
+                         {(currentInput || currentOutput) && (
+                            <div className="live-transcription">
+                                {currentInput && <div className="chat-bubble user-bubble live-bubble"><strong>You:</strong> {currentInput}<span className="caret"></span></div>}
+                                {currentOutput && <div className="chat-bubble gemini-bubble live-bubble"><strong>Gemini:</strong> {currentOutput}<span className="caret"></span></div>}
+                            </div>
+                        )}
+                    </div>
+                     <div className="live-controls">
+                        {connectionState !== 'connected' && connectionState !== 'connecting' ? (
+                            <button onClick={startLiveSession} disabled={connectionState === 'connecting'}>
+                                {connectionState === 'connecting' ? 'Starting...' : 'Start Live Chat'}
+                            </button>
+                        ) : (
+                            <button onClick={stopLiveSession} className="stop-btn">
+                                Stop Live Chat
+                            </button>
+                        )}
+                        {errorMessage && <p className="error-message">{errorMessage}</p>}
+                    </div>
+                </div>
+            </div>
+        </main>
+    );
+  };
 
   return (
     <>
@@ -679,10 +966,13 @@ const App: React.FC = () => {
                     onChange={(e) => setSearchQuery(e.target.value)}
                 />
             </div>
+            <button className="profile-btn" onClick={() => setCurrentView('live')}>Live Chat</button>
             <button className="profile-btn" onClick={() => setCurrentView('profile')}>Profile</button>
         </div>
       </header>
-      {currentView === 'home' ? renderHomeView() : renderProfileView()}
+      {currentView === 'home' && renderHomeView()}
+      {currentView === 'profile' && renderProfileView()}
+      {currentView === 'live' && <LiveView />}
     </>
   );
 };
