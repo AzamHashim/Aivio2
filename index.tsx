@@ -25,6 +25,11 @@ const mockChannels: Channel[] = [
   { id: 'ch_gaming', name: 'Gaming Zone', subscriberCount: 560000 },
 ];
 
+interface Monetization {
+  type: 'free' | 'ppv' | 'subscription';
+  price?: number;
+}
+
 interface Video {
   id: string;
   file: File;
@@ -36,6 +41,7 @@ interface Video {
   comments: Comment[];
   likes: number;
   isLiked: boolean;
+  monetization: Monetization;
 }
 
 interface Notification {
@@ -47,6 +53,7 @@ interface User {
   name: string;
   username: string;
   subscribedChannelIds: string[];
+  purchasedVideoIds: string[];
 }
 
 const App: React.FC = () => {
@@ -55,16 +62,19 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [currentView, setCurrentView] = useState<'home' | 'profile' | 'live'>('home');
-  const [user, setUser] = useState<User>({ name: 'Alex Doe', username: '@alexdoe', subscribedChannelIds: ['ch_tech', 'ch_gaming'] });
+  const [user, setUser] = useState<User>({ name: 'Alex Doe', username: '@alexdoe', subscribedChannelIds: ['ch_tech', 'ch_gaming'], purchasedVideoIds: [] });
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editName, setEditName] = useState(user.name);
   const [editUsername, setEditUsername] = useState(user.username);
 
-
+  // Upload form state
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [monetizationType, setMonetizationType] = useState<Monetization['type']>('free');
+  const [price, setPrice] = useState('');
+
   const [newComment, setNewComment] = useState('');
 
   const [videoDescription, setVideoDescription] = useState('');
@@ -85,6 +95,12 @@ const App: React.FC = () => {
   const [videoQuality, setVideoQuality] = useState('1080p');
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [qualityChangeIndicator, setQualityChangeIndicator] = useState('');
+
+  // Payment Modal State
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [paymentItem, setPaymentItem] = useState<{ type: 'ppv' | 'subscription'; video?: Video; channel?: Channel } | null>(null);
+  const [paymentState, setPaymentState] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
+  const [paymentError, setPaymentError] = useState('');
 
 
   useEffect(() => {
@@ -109,6 +125,11 @@ const App: React.FC = () => {
   const handleUpload = (e: FormEvent) => {
     e.preventDefault();
     if (file && title && category) {
+      const monetization: Monetization = {
+        type: monetizationType,
+        price: monetizationType === 'ppv' ? parseFloat(price) : undefined,
+      };
+
       const newVideo: Video = {
         id: crypto.randomUUID(),
         file,
@@ -120,6 +141,7 @@ const App: React.FC = () => {
         comments: [],
         likes: Math.floor(Math.random() * 5000) + 100, // Mock initial likes
         isLiked: false,
+        monetization,
       };
       const updatedVideos = [...videos, newVideo];
       setVideos(updatedVideos);
@@ -130,6 +152,8 @@ const App: React.FC = () => {
       setDescription('');
       setCategory('');
       setFile(null);
+      setMonetizationType('free');
+      setPrice('');
       (document.getElementById('video-file') as HTMLInputElement).value = '';
       resetAIState();
     }
@@ -194,22 +218,24 @@ const App: React.FC = () => {
     setError(null);
   };
 
-  const handleSubscribeToggle = () => {
-    if (!currentVideo) return;
-    
-    const channelId = currentVideo.channelId;
-    const isCurrentlySubscribed = user.subscribedChannelIds.includes(channelId);
+  const handleSubscribeToggle = (channelId: string) => {
+      const isCurrentlySubscribed = user.subscribedChannelIds.includes(channelId);
 
-    showNotification(isCurrentlySubscribed ? 'Unsubscribed.' : 'Subscribed!');
-
-    let updatedSubscribedIds;
-    if (isCurrentlySubscribed) {
-        updatedSubscribedIds = user.subscribedChannelIds.filter(id => id !== channelId);
-    } else {
-        updatedSubscribedIds = [...user.subscribedChannelIds, channelId];
-    }
-    setUser(prevUser => ({...prevUser, subscribedChannelIds: updatedSubscribedIds }));
+      if (isCurrentlySubscribed) {
+          // Unsubscribe logic
+          const updatedSubscribedIds = user.subscribedChannelIds.filter(id => id !== channelId);
+          setUser(prevUser => ({...prevUser, subscribedChannelIds: updatedSubscribedIds }));
+          showNotification('Unsubscribed.');
+      } else {
+          // Initiate subscription purchase
+          const channel = mockChannels.find(c => c.id === channelId);
+          if(channel){
+              setPaymentItem({ type: 'subscription', channel });
+              setIsPaymentModalOpen(true);
+          }
+      }
   };
+
 
   const handleLikeToggle = () => {
     if (!currentVideo) return;
@@ -250,6 +276,54 @@ const App: React.FC = () => {
     setVideoQuality(quality);
     setShowQualityMenu(false);
     setQualityChangeIndicator(`Quality set to ${quality}`);
+  };
+
+  const handleInitiatePpvPurchase = (video: Video) => {
+    setPaymentItem({ type: 'ppv', video });
+    setIsPaymentModalOpen(true);
+  };
+
+  const handleClosePaymentModal = () => {
+    setIsPaymentModalOpen(false);
+    // Delay resetting state to allow for fade-out animation
+    setTimeout(() => {
+        setPaymentItem(null);
+        setPaymentState('idle');
+        setPaymentError('');
+    }, 300);
+  };
+
+  const handleConfirmPayment = (e: FormEvent) => {
+      e.preventDefault();
+      setPaymentState('processing');
+      setPaymentError('');
+
+      // Simulate API call
+      setTimeout(() => {
+          if (!paymentItem) return;
+
+          // Simulate a random failure
+          if (Math.random() < 0.1) {
+              setPaymentState('error');
+              setPaymentError('Payment declined. Please try another card.');
+              return;
+          }
+
+          if (paymentItem.type === 'ppv' && paymentItem.video) {
+              setUser(prev => ({
+                  ...prev,
+                  purchasedVideoIds: [...prev.purchasedVideoIds, paymentItem.video!.id]
+              }));
+          } else if (paymentItem.type === 'subscription' && paymentItem.channel) {
+              setUser(prev => ({
+                  ...prev,
+                  subscribedChannelIds: [...prev.subscribedChannelIds, paymentItem.channel!.id]
+              }));
+          }
+          setPaymentState('success');
+          showNotification('Payment successful!');
+          setTimeout(handleClosePaymentModal, 1500); // Close modal after showing success
+      }, 2000);
   };
 
   // Custom Video Player Controls
@@ -360,7 +434,13 @@ const App: React.FC = () => {
 
   const renderHomeView = () => {
       const channel = currentVideo ? mockChannels.find(c => c.id === currentVideo.channelId) : null;
-      const isSubscribed = currentVideo ? user.subscribedChannelIds.includes(currentVideo.channelId) : false;
+      const isSubscribedToCurrentChannel = currentVideo ? user.subscribedChannelIds.includes(currentVideo.channelId) : false;
+
+      const hasAccess = currentVideo ? 
+        currentVideo.monetization.type === 'free' ||
+        (currentVideo.monetization.type === 'ppv' && user.purchasedVideoIds.includes(currentVideo.id)) ||
+        (currentVideo.monetization.type === 'subscription' && isSubscribedToCurrentChannel)
+        : false;
 
       return (
       <main>
@@ -368,83 +448,110 @@ const App: React.FC = () => {
           <div className="video-player-container">
             {currentVideo ? (
               <>
-                <video 
-                    ref={videoRef}
-                    src={currentVideo.url} 
-                    autoPlay 
-                    key={currentVideo.id}
-                    onPlay={() => setIsPlaying(true)}
-                    onPause={() => setIsPlaying(false)}
-                    onTimeUpdate={(e) => {
-                        setCurrentTime(e.currentTarget.currentTime);
-                        setProgress((e.currentTarget.currentTime / duration) * 100);
-                    }}
-                    onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
-                    onVolumeChange={(e) => {
-                        setVolume(e.currentTarget.volume);
-                        setIsMuted(e.currentTarget.muted);
-                    }}
-                    onClick={togglePlayPause}
-                ></video>
-                {qualityChangeIndicator && <div className="quality-indicator">{qualityChangeIndicator}</div>}
-                <div className="video-controls-overlay">
-                    <div className="progress-bar-container">
-                      <input 
-                        type="range" 
-                        min="0" 
-                        max="100" 
-                        value={progress || 0}
-                        onChange={handleProgressChange}
-                        className="progress-bar"
-                        style={{'--progress-percent': `${progress}%`} as React.CSSProperties}
-                        />
-                    </div>
-                    <div className="controls-bottom-row">
-                        <div className="controls-left">
-                           <button className="control-btn" onClick={togglePlayPause}>
-                            {isPlaying ? (
-                                <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>
-                            ) : (
-                                <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M8 5v14l11-7z"></path></svg>
-                            )}
-                           </button>
-                           <div className="volume-container">
-                            <button className="control-btn" onClick={toggleMute}>
-                                {isMuted || volume === 0 ? (
-                                    <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"></path></svg>
-                                ) : (
-                                    <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c3.89-.91 7-4.49 7-8.77s-3.11-7.86-7-8.77z"></path></svg>
-                                )}
-                            </button>
-                            <input 
-                                type="range" 
-                                min="0" 
-                                max="1" 
-                                step="0.05" 
-                                value={isMuted ? 0 : volume} 
-                                onChange={handleVolumeChange} 
-                                className="volume-slider" 
-                                style={{'--volume-percent': `${isMuted ? 0 : volume * 100}%`} as React.CSSProperties}
+                {hasAccess ? (
+                  <>
+                    <video 
+                        ref={videoRef}
+                        src={currentVideo.url} 
+                        autoPlay 
+                        key={currentVideo.id}
+                        onPlay={() => setIsPlaying(true)}
+                        onPause={() => setIsPlaying(false)}
+                        onTimeUpdate={(e) => {
+                            setCurrentTime(e.currentTarget.currentTime);
+                            setProgress((e.currentTarget.currentTime / duration) * 100);
+                        }}
+                        onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+                        onVolumeChange={(e) => {
+                            setVolume(e.currentTarget.volume);
+                            setIsMuted(e.currentTarget.muted);
+                        }}
+                        onClick={togglePlayPause}
+                    ></video>
+                    {qualityChangeIndicator && <div className="quality-indicator">{qualityChangeIndicator}</div>}
+                    <div className="video-controls-overlay">
+                        <div className="progress-bar-container">
+                          <input 
+                            type="range" 
+                            min="0" 
+                            max="100" 
+                            value={progress || 0}
+                            onChange={handleProgressChange}
+                            className="progress-bar"
+                            style={{'--progress-percent': `${progress}%`} as React.CSSProperties}
                             />
-                           </div>
                         </div>
-                         <div className="controls-right">
-                            <span className="time-display">{formatTime(currentTime)} / {formatTime(duration)}</span>
-                            <div className="settings-container">
-                                <button className="control-btn settings-btn" onClick={() => setShowQualityMenu(prev => !prev)} aria-label="Video settings">
-                                    <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
-                                </button>
-                                {showQualityMenu && (
-                                    <ul className="quality-menu">
-                                        <li onClick={() => handleQualityChange('1080p')} className={videoQuality === '1080p' ? 'active' : ''}>1080p (High)</li>
-                                        <li onClick={() => handleQualityChange('720p')} className={videoQuality === '720p' ? 'active' : ''}>720p (Medium)</li>
-                                        <li onClick={() => handleQualityChange('480p')} className={videoQuality === '480p' ? 'active' : ''}>480p (Low)</li>
-                                    </ul>
+                        <div className="controls-bottom-row">
+                            <div className="controls-left">
+                               <button className="control-btn" onClick={togglePlayPause}>
+                                {isPlaying ? (
+                                    <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>
+                                ) : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M8 5v14l11-7z"></path></svg>
                                 )}
+                               </button>
+                               <div className="volume-container">
+                                <button className="control-btn" onClick={toggleMute}>
+                                    {isMuted || volume === 0 ? (
+                                        <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"></path></svg>
+                                    ) : (
+                                        <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c3.89-.91 7-4.49 7-8.77s-3.11-7.86-7-8.77z"></path></svg>
+                                    )}
+                                </button>
+                                <input 
+                                    type="range" 
+                                    min="0" 
+                                    max="1" 
+                                    step="0.05" 
+                                    value={isMuted ? 0 : volume} 
+                                    onChange={handleVolumeChange} 
+                                    className="volume-slider" 
+                                    style={{'--volume-percent': `${isMuted ? 0 : volume * 100}%`} as React.CSSProperties}
+                                />
+                               </div>
                             </div>
-                         </div>
+                             <div className="controls-right">
+                                <span className="time-display">{formatTime(currentTime)} / {formatTime(duration)}</span>
+                                <div className="settings-container">
+                                    <button className="control-btn settings-btn" onClick={() => setShowQualityMenu(prev => !prev)} aria-label="Video settings">
+                                        <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
+                                    </button>
+                                    {showQualityMenu && (
+                                        <ul className="quality-menu">
+                                            <li onClick={() => handleQualityChange('1080p')} className={videoQuality === '1080p' ? 'active' : ''}>1080p (High)</li>
+                                            <li onClick={() => handleQualityChange('720p')} className={videoQuality === '720p' ? 'active' : ''}>720p (Medium)</li>
+                                            <li onClick={() => handleQualityChange('480p')} className={videoQuality === '480p' ? 'active' : ''}>480p (Low)</li>
+                                        </ul>
+                                    )}
+                                </div>
+                             </div>
+                        </div>
                     </div>
-                </div>
+                  </>
+                ) : (
+                    <div className="video-lock-overlay">
+                        <div className="lock-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" height="48" viewBox="0 0 24 24" width="48"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"></path></svg>
+                        </div>
+                        <h3>Premium Content</h3>
+                        {currentVideo.monetization.type === 'ppv' && (
+                            <>
+                                <p>Unlock this video for a one-time payment.</p>
+                                <button onClick={() => handleInitiatePpvPurchase(currentVideo)}>
+                                    Buy Now for ${currentVideo.monetization.price?.toFixed(2)}
+                                </button>
+                            </>
+                        )}
+                        {currentVideo.monetization.type === 'subscription' && channel && (
+                            <>
+                                <p>Subscribe to {channel.name} to watch.</p>
+                                <button onClick={() => handleSubscribeToggle(currentVideo.channelId)}>
+                                    Subscribe to Watch
+                                </button>
+                            </>
+                        )}
+                    </div>
+                )}
               </>
             ) : (
               <div className="no-video-placeholder">
@@ -456,7 +563,14 @@ const App: React.FC = () => {
             <>
               <div className="video-info">
                 <div className="video-meta">
-                  <h3>{currentVideo.title}</h3>
+                   <div className="title-line">
+                    <h3>{currentVideo.title}</h3>
+                    {currentVideo.monetization.type !== 'free' && (
+                        <span className="premium-badge">
+                            {currentVideo.monetization.type === 'ppv' ? `$${currentVideo.monetization.price?.toFixed(2)}` : 'Premium'}
+                        </span>
+                    )}
+                  </div>
                   <p className="video-category">{currentVideo.category}</p>
                   <p className="video-channel-name">{channel ? channel.name : 'Unknown Channel'}</p>
                   <p>{currentVideo.description}</p>
@@ -471,10 +585,10 @@ const App: React.FC = () => {
                     <span>{currentVideo.likes.toLocaleString()}</span>
                   </button>
                   <button
-                    className={`subscribe-btn ${isSubscribed ? 'subscribed' : ''}`}
-                    onClick={handleSubscribeToggle}
+                    className={`subscribe-btn ${isSubscribedToCurrentChannel ? 'subscribed' : ''}`}
+                    onClick={() => handleSubscribeToggle(currentVideo.channelId)}
                   >
-                    {isSubscribed ? 'Subscribed' : 'Subscribe'}
+                    {isSubscribedToCurrentChannel ? 'Subscribed' : 'Subscribe'}
                   </button>
                 </div>
               </div>
@@ -601,7 +715,39 @@ const App: React.FC = () => {
                   placeholder="A brief description of your video"
                 />
               </div>
-              <button type="submit" disabled={!file || !title || !category}>
+               <div className="form-group">
+                  <label>Monetization</label>
+                  <div className="monetization-options">
+                      <label>
+                          <input type="radio" name="monetization" value="free" checked={monetizationType === 'free'} onChange={() => setMonetizationType('free')} />
+                          Free
+                      </label>
+                      <label>
+                          <input type="radio" name="monetization" value="ppv" checked={monetizationType === 'ppv'} onChange={() => setMonetizationType('ppv')} />
+                          Pay-Per-View
+                      </label>
+                      <label>
+                          <input type="radio" name="monetization" value="subscription" checked={monetizationType === 'subscription'} onChange={() => setMonetizationType('subscription')} />
+                          Subscription Only
+                      </label>
+                  </div>
+                  {monetizationType === 'ppv' && (
+                      <div className="price-input-container">
+                          <label htmlFor="price">Price ($)</label>
+                          <input
+                              id="price"
+                              type="number"
+                              value={price}
+                              onChange={(e) => setPrice(e.target.value)}
+                              placeholder="e.g., 2.99"
+                              min="0.50"
+                              step="0.01"
+                              required
+                          />
+                      </div>
+                  )}
+              </div>
+              <button type="submit" disabled={!file || !title || !category || (monetizationType === 'ppv' && !price)}>
                 Upload & Play
               </button>
             </form>
@@ -620,6 +766,11 @@ const App: React.FC = () => {
                     }}
                   >
                     <div className="video-list-item">
+                      {video.monetization.type !== 'free' && (
+                        <span className="monetization-icon" title={video.monetization.type === 'ppv' ? `Pay-per-view ($${video.monetization.price?.toFixed(2)})` : 'Subscription only'}>
+                          <svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 0 24 24" width="18"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM9 8V6c0-1.65 1.35-3 3-3s3 1.35 3 3v2H9z"></path></svg>
+                        </span>
+                      )}
                       <span className="video-list-title">{video.title}</span>
                       <span className="video-list-category">{video.category}</span>
                     </div>
@@ -945,9 +1096,91 @@ const App: React.FC = () => {
         </main>
     );
   };
+  
+  const renderPaymentModal = () => {
+    if (!isPaymentModalOpen || !paymentItem) return null;
+
+    const getItemDetails = () => {
+        if (paymentItem.type === 'ppv' && paymentItem.video) {
+            return {
+                title: 'Unlock Video',
+                description: `You are purchasing "${paymentItem.video.title}".`,
+                price: paymentItem.video.monetization.price,
+            };
+        }
+        if (paymentItem.type === 'subscription' && paymentItem.channel) {
+            return {
+                title: 'Subscribe to Channel',
+                description: `You are subscribing to "${paymentItem.channel.name}".`,
+                price: 4.99, // Mock subscription price
+            };
+        }
+        return { title: 'Confirm Purchase', description: '', price: 0 };
+    };
+
+    const { title, description, price } = getItemDetails();
+
+    return (
+        <div className="payment-modal-backdrop" onClick={handleClosePaymentModal}>
+            <div className="payment-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="payment-modal-header">
+                    <h3>{title}</h3>
+                    <button className="close-btn" onClick={handleClosePaymentModal} aria-label="Close payment modal">&times;</button>
+                </div>
+                {paymentState === 'idle' && (
+                  <form onSubmit={handleConfirmPayment}>
+                      <div className="payment-modal-body">
+                          <p>{description}</p>
+                          <div className="price-display">
+                              Total: <span>${price?.toFixed(2)}</span>
+                          </div>
+                          <div className="form-group">
+                              <label htmlFor="card-number">Card Number</label>
+                              <input id="card-number" type="text" placeholder="**** **** **** 1234" required />
+                          </div>
+                          <div className="form-row">
+                              <div className="form-group">
+                                  <label htmlFor="expiry">Expiry Date</label>
+                                  <input id="expiry" type="text" placeholder="MM/YY" required />
+                              </div>
+                              <div className="form-group">
+                                  <label htmlFor="cvc">CVC</label>
+                                  <input id="cvc" type="text" placeholder="123" required />
+                              </div>
+                          </div>
+                      </div>
+                      <div className="payment-modal-footer">
+                          <button type="submit" className="pay-btn">Pay ${price?.toFixed(2)}</button>
+                      </div>
+                  </form>
+                )}
+                {paymentState === 'processing' && (
+                    <div className="payment-modal-body state-screen">
+                        <div className="loader-spinner"></div>
+                        <p>Processing your payment...</p>
+                    </div>
+                )}
+                 {paymentState === 'success' && (
+                    <div className="payment-modal-body state-screen">
+                        <div className="success-icon">&#10004;</div>
+                        <p>Payment Successful!</p>
+                    </div>
+                )}
+                {paymentState === 'error' && (
+                    <div className="payment-modal-body state-screen">
+                        <div className="error-icon">&times;</div>
+                        <p className="error-message">{paymentError}</p>
+                        <button onClick={() => setPaymentState('idle')}>Try Again</button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+  }
 
   return (
     <>
+      {renderPaymentModal()}
       <div className="notification-container">
         {notifications.map(notification => (
           <div key={notification.id} className="notification-toast">
