@@ -3,9 +3,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, FormEvent, useEffect, useRef } from 'react';
+import React, { useState, FormEvent, useEffect, useRef, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, LiveServerMessage, Modality, Blob, LiveSession } from "@google/genai";
+
+// Helper function to convert blob to base64
+const blobToBase64 = (blob: globalThis.Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64String = (reader.result as string).split(',')[1];
+            resolve(base64String);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+};
 
 interface Comment {
   id: string;
@@ -30,6 +43,10 @@ interface Monetization {
   price?: number;
 }
 
+interface AdMarker {
+  timestamp: number;
+}
+
 interface Video {
   id: string;
   file: File;
@@ -42,6 +59,7 @@ interface Video {
   likes: number;
   isLiked: boolean;
   monetization: Monetization;
+  ads?: AdMarker[];
 }
 
 interface Notification {
@@ -56,6 +74,12 @@ interface User {
   purchasedVideoIds: string[];
 }
 
+interface VideoAnalytics {
+  views: number;
+  watchTime: number; // in seconds
+}
+
+
 const App: React.FC = () => {
   const [videos, setVideos] = useState<Video[]>([]);
   const [currentVideo, setCurrentVideo] = useState<Video | null>(null);
@@ -66,6 +90,8 @@ const App: React.FC = () => {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editName, setEditName] = useState(user.name);
   const [editUsername, setEditUsername] = useState(user.username);
+  const [profileTab, setProfileTab] = useState<'uploads' | 'subscriptions' | 'analytics'>('uploads');
+
 
   // Upload form state
   const [title, setTitle] = useState('');
@@ -86,6 +112,7 @@ const App: React.FC = () => {
 
   // Video player state
   const videoRef = useRef<HTMLVideoElement>(null);
+  const videoPlayerContainerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [volume, setVolume] = useState(1);
@@ -95,12 +122,48 @@ const App: React.FC = () => {
   const [videoQuality, setVideoQuality] = useState('1080p');
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [qualityChangeIndicator, setQualityChangeIndicator] = useState('');
+  const [isInPiP, setIsInPiP] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false);
 
   // Payment Modal State
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [paymentItem, setPaymentItem] = useState<{ type: 'ppv' | 'subscription'; video?: Video; channel?: Channel } | null>(null);
   const [paymentState, setPaymentState] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
   const [paymentError, setPaymentError] = useState('');
+
+  // Analytics State
+  const [analyticsData, setAnalyticsData] = useState<Record<string, VideoAnalytics>>({});
+  const watchTimeIntervalRef = useRef<number | null>(null);
+
+  // Load analytics from localStorage on initial render
+  useEffect(() => {
+    try {
+      const storedAnalytics = localStorage.getItem('videoAnalytics');
+      if (storedAnalytics) {
+        setAnalyticsData(JSON.parse(storedAnalytics));
+      }
+    } catch (e) {
+      console.error("Failed to parse analytics data from localStorage", e);
+    }
+  }, []);
+
+  // Save analytics to localStorage whenever they change
+  useEffect(() => {
+    // Only save if there's data to prevent empty item in localStorage
+    if (Object.keys(analyticsData).length > 0) {
+      localStorage.setItem('videoAnalytics', JSON.stringify(analyticsData));
+    }
+  }, [analyticsData]);
+
+  // Clear watch time interval on video change or component unmount
+  useEffect(() => {
+    // Cleanup interval when component unmounts or video changes
+    return () => {
+      if (watchTimeIntervalRef.current) {
+        clearInterval(watchTimeIntervalRef.current);
+      }
+    };
+  }, [currentVideo]);
 
 
   useEffect(() => {
@@ -142,10 +205,11 @@ const App: React.FC = () => {
         likes: Math.floor(Math.random() * 5000) + 100, // Mock initial likes
         isLiked: false,
         monetization,
+        ads: [ { timestamp: 15 }, { timestamp: 45 } ],
       };
       const updatedVideos = [...videos, newVideo];
       setVideos(updatedVideos);
-      setCurrentVideo(newVideo);
+      handleSelectVideo(newVideo); // Use handleSelectVideo to set and count view
 
       // Reset form
       setTitle('');
@@ -327,16 +391,15 @@ const App: React.FC = () => {
   };
 
   // Custom Video Player Controls
-  const togglePlayPause = () => {
+  const togglePlayPause = useCallback(() => {
     if (videoRef.current) {
         if (videoRef.current.paused) {
             videoRef.current.play();
         } else {
             videoRef.current.pause();
         }
-        setIsPlaying(!videoRef.current.paused);
     }
-  };
+  }, []);
 
   const handleProgressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTime = (Number(e.target.value) / 100) * duration;
@@ -356,7 +419,7 @@ const App: React.FC = () => {
     setIsMuted(newVolume === 0);
   };
   
-  const toggleMute = () => {
+  const toggleMute = useCallback(() => {
     if (videoRef.current) {
         const newMutedState = !videoRef.current.muted;
         videoRef.current.muted = newMutedState;
@@ -368,12 +431,185 @@ const App: React.FC = () => {
             setVolume(0);
         }
     }
-  };
+  }, [volume]);
   
   const formatTime = (time: number) => {
       const minutes = Math.floor(time / 60);
       const seconds = Math.floor(time % 60);
       return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  const togglePiP = useCallback(async () => {
+    if (!videoRef.current) return;
+    if (!document.pictureInPictureEnabled) {
+      showNotification('Picture-in-Picture is not supported by your browser.');
+      return;
+    }
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else {
+        await videoRef.current.requestPictureInPicture();
+      }
+    } catch (error) {
+      console.error('PiP Error:', error);
+      showNotification('Failed to toggle Picture-in-Picture mode.');
+    }
+  }, []);
+
+  const toggleFullScreen = useCallback(async () => {
+    if (!videoPlayerContainerRef.current) return;
+    if (!document.fullscreenEnabled) {
+      showNotification('Fullscreen is not supported by your browser.');
+      return;
+    }
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await videoPlayerContainerRef.current.requestFullscreen();
+      }
+    } catch (error) {
+      console.error('Fullscreen Error:', error);
+      showNotification('Failed to toggle fullscreen mode.');
+    }
+  }, []);
+
+  // Effect for Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!videoRef.current || !videoPlayerContainerRef.current) return;
+
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') {
+        return;
+      }
+
+      switch (e.key.toLowerCase()) {
+        case ' ':
+          e.preventDefault();
+          togglePlayPause();
+          break;
+        case 'f':
+          toggleFullScreen();
+          break;
+        case 'm':
+          toggleMute();
+          break;
+        case 'p':
+          togglePiP();
+          break;
+        case 'arrowleft':
+          e.preventDefault();
+          videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 5);
+          break;
+        case 'arrowright':
+          e.preventDefault();
+          videoRef.current.currentTime = Math.min(duration, videoRef.current.currentTime + 5);
+          break;
+        case 'arrowup':
+          e.preventDefault();
+          const newVolumeUp = Math.min(1, videoRef.current.volume + 0.1);
+          videoRef.current.volume = newVolumeUp;
+          setVolume(newVolumeUp);
+          setIsMuted(newVolumeUp === 0);
+          break;
+        case 'arrowdown':
+          e.preventDefault();
+          const newVolumeDown = Math.max(0, videoRef.current.volume - 0.1);
+          videoRef.current.volume = newVolumeDown;
+          setVolume(newVolumeDown);
+          setIsMuted(newVolumeDown === 0);
+          break;
+      }
+    };
+
+    if (currentVideo) {
+      document.addEventListener('keydown', handleKeyDown);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [currentVideo, duration, togglePlayPause, toggleMute, toggleFullScreen, togglePiP]);
+
+  // Effects to sync PiP and Fullscreen state with browser events
+  useEffect(() => {
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+
+    const onEnterPiP = () => setIsInPiP(true);
+    const onLeavePiP = () => setIsInPiP(false);
+
+    videoElement.addEventListener('enterpictureinpicture', onEnterPiP);
+    videoElement.addEventListener('leavepictureinpicture', onLeavePiP);
+
+    return () => {
+      videoElement.removeEventListener('enterpictureinpicture', onEnterPiP);
+      videoElement.removeEventListener('leavepictureinpicture', onLeavePiP);
+    };
+  }, [currentVideo]);
+
+  useEffect(() => {
+    const onFullScreenChange = () => {
+      setIsFullScreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', onFullScreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullScreenChange);
+  }, []);
+
+
+  // Analytics Helpers
+  const formatWatchTime = (totalSeconds: number): string => {
+    if (isNaN(totalSeconds) || totalSeconds < 0) return '0s';
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = Math.floor(totalSeconds % 60);
+
+    let result = '';
+    if (hours > 0) result += `${hours}h `;
+    if (minutes > 0) result += `${minutes}m `;
+    if (seconds >= 0 || result === '') result += `${seconds}s`;
+    
+    return result.trim() || '0s';
+  };
+
+  const handleSelectVideo = (video: Video) => {
+    if (currentVideo?.id !== video.id) {
+        // This counts as a new view
+        setAnalyticsData(prev => {
+            const currentStats = prev[video.id] || { views: 0, watchTime: 0 };
+            return {
+                ...prev,
+                [video.id]: { ...currentStats, views: currentStats.views + 1 }
+            };
+        });
+    }
+    setCurrentVideo(video);
+    resetAIState();
+  };
+
+  const handleVideoPlay = () => {
+    if (!currentVideo) return;
+    // Clear any existing interval before starting a new one
+    if (watchTimeIntervalRef.current) clearInterval(watchTimeIntervalRef.current);
+    
+    watchTimeIntervalRef.current = window.setInterval(() => {
+        setAnalyticsData(prev => {
+            const currentStats = prev[currentVideo.id] || { views: 0, watchTime: 0 };
+            return {
+                ...prev,
+                [currentVideo.id]: { ...currentStats, watchTime: currentStats.watchTime + 1 }
+            };
+        });
+    }, 1000); // Update every second
+  };
+
+  const handleVideoPause = () => {
+    if (watchTimeIntervalRef.current) {
+        clearInterval(watchTimeIntervalRef.current);
+        watchTimeIntervalRef.current = null;
+    }
   };
 
   const filteredVideos = videos.filter(video =>
@@ -445,7 +681,7 @@ const App: React.FC = () => {
       return (
       <main>
         <div className="main-column">
-          <div className="video-player-container">
+          <div className="video-player-container" ref={videoPlayerContainerRef}>
             {currentVideo ? (
               <>
                 {hasAccess ? (
@@ -455,8 +691,15 @@ const App: React.FC = () => {
                         src={currentVideo.url} 
                         autoPlay 
                         key={currentVideo.id}
-                        onPlay={() => setIsPlaying(true)}
-                        onPause={() => setIsPlaying(false)}
+                        onPlay={() => {
+                            setIsPlaying(true);
+                            handleVideoPlay();
+                        }}
+                        onPause={() => {
+                            setIsPlaying(false);
+                            handleVideoPause();
+                        }}
+                        onEnded={handleVideoPause}
                         onTimeUpdate={(e) => {
                             setCurrentTime(e.currentTarget.currentTime);
                             setProgress((e.currentTarget.currentTime / duration) * 100);
@@ -471,6 +714,14 @@ const App: React.FC = () => {
                     {qualityChangeIndicator && <div className="quality-indicator">{qualityChangeIndicator}</div>}
                     <div className="video-controls-overlay">
                         <div className="progress-bar-container">
+                          {currentVideo.ads && duration > 0 && currentVideo.ads.map((ad, index) => (
+                              <div
+                                  key={index}
+                                  className="ad-marker"
+                                  style={{ left: `${(ad.timestamp / duration) * 100}%` }}
+                                  title={`Ad at ${formatTime(ad.timestamp)}`}
+                              ></div>
+                          ))}
                           <input 
                             type="range" 
                             min="0" 
@@ -514,7 +765,7 @@ const App: React.FC = () => {
                                 <span className="time-display">{formatTime(currentTime)} / {formatTime(duration)}</span>
                                 <div className="settings-container">
                                     <button className="control-btn settings-btn" onClick={() => setShowQualityMenu(prev => !prev)} aria-label="Video settings">
-                                        <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
+                                        <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49.42l.38-2.65c.61-.25 1.17-.59 1.69.98l2.49 1c.23.09.49 0 .61.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
                                     </button>
                                     {showQualityMenu && (
                                         <ul className="quality-menu">
@@ -524,6 +775,16 @@ const App: React.FC = () => {
                                         </ul>
                                     )}
                                 </div>
+                                <button className="control-btn" onClick={togglePiP} aria-label="Picture-in-picture mode (p)">
+                                    <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"></path></svg>
+                                </button>
+                                <button className="control-btn" onClick={toggleFullScreen} aria-label="Toggle fullscreen (f)">
+                                    {isFullScreen ? (
+                                        <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"></path></svg>
+                                    ) : (
+                                        <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"></path></svg>
+                                    )}
+                                </button>
                              </div>
                         </div>
                     </div>
@@ -760,10 +1021,7 @@ const App: React.FC = () => {
                   <li
                     key={video.id}
                     className={currentVideo?.id === video.id ? 'active' : ''}
-                    onClick={() => {
-                        setCurrentVideo(video);
-                        resetAIState();
-                    }}
+                    onClick={() => handleSelectVideo(video)}
                   >
                     <div className="video-list-item">
                       {video.monetization.type !== 'free' && (
@@ -783,6 +1041,44 @@ const App: React.FC = () => {
       </main>
     );
   }
+
+  const renderAnalyticsView = () => (
+    <div className="card analytics-dashboard">
+        <h2>Video Analytics</h2>
+        {videos.length > 0 ? (
+            <div className="analytics-list">
+                {videos.map(video => {
+                    const stats = analyticsData[video.id] || { views: 0, watchTime: 0 };
+                    return (
+                        <div key={video.id} className="analytics-item card">
+                            <h3>{video.title}</h3>
+                            <div className="analytics-stats">
+                                <div className="stat-item">
+                                    <span className="stat-value">{stats.views.toLocaleString()}</span>
+                                    <span className="stat-label">Views</span>
+                                </div>
+                                <div className="stat-item">
+                                    <span className="stat-value">{formatWatchTime(stats.watchTime)}</span>
+                                    <span className="stat-label">Watch Time</span>
+                                </div>
+                                <div className="stat-item">
+                                    <span className="stat-value">{video.likes.toLocaleString()}</span>
+                                    <span className="stat-label">Likes</span>
+                                </div>
+                                <div className="stat-item">
+                                    <span className="stat-value">{video.comments.length.toLocaleString()}</span>
+                                    <span className="stat-label">Comments</span>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        ) : (
+            <p className="no-videos">Upload videos to see analytics.</p>
+        )}
+    </div>
+);
 
   const renderProfileView = () => (
     <main className="profile-page">
@@ -827,7 +1123,41 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
-         <div className="card subscriptions">
+        
+        <div className="profile-tabs">
+            <button className={`tab-btn ${profileTab === 'uploads' ? 'active' : ''}`} onClick={() => setProfileTab('uploads')}>
+                My Uploads
+            </button>
+            <button className={`tab-btn ${profileTab === 'subscriptions' ? 'active' : ''}`} onClick={() => setProfileTab('subscriptions')}>
+                Subscriptions
+            </button>
+            <button className={`tab-btn ${profileTab === 'analytics' ? 'active' : ''}`} onClick={() => setProfileTab('analytics')}>
+                Analytics
+            </button>
+        </div>
+
+        {profileTab === 'uploads' && (
+           <div className="card user-videos">
+            <h2>My Uploads ({videos.length})</h2>
+            {videos.length > 0 ? (
+              <ul>
+                {videos.map(video => (
+                  <li key={video.id}>
+                    <div className="video-list-item">
+                      <span className="video-list-title">{video.title}</span>
+                      <span className="video-list-category">{video.category}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="no-videos">You haven't uploaded any videos yet.</p>
+            )}
+          </div>
+        )}
+
+        {profileTab === 'subscriptions' && (
+          <div className="card subscriptions">
             <h2>My Subscriptions ({user.subscribedChannelIds.length})</h2>
             {user.subscribedChannelIds.length > 0 ? (
                 <ul>
@@ -839,24 +1169,10 @@ const App: React.FC = () => {
             ) : (
                 <p className="no-videos">You haven't subscribed to any channels yet.</p>
             )}
-        </div>
-        <div className="card user-videos">
-          <h2>My Uploads ({videos.length})</h2>
-          {videos.length > 0 ? (
-            <ul>
-              {videos.map(video => (
-                <li key={video.id}>
-                  <div className="video-list-item">
-                    <span className="video-list-title">{video.title}</span>
-                    <span className="video-list-category">{video.category}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="no-videos">You haven't uploaded any videos yet.</p>
-          )}
-        </div>
+          </div>
+        )}
+
+        {profileTab === 'analytics' && renderAnalyticsView()}
       </div>
     </main>
   );
@@ -874,11 +1190,22 @@ const App: React.FC = () => {
     const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
     const mediaStreamSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
     const mediaStreamRef = useRef<MediaStream | null>(null);
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const frameIntervalRef = useRef<number | null>(null);
 
     const nextStartTimeRef = useRef(0);
     const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+    
+    const FRAME_RATE = 2; // frames per second
+    const JPEG_QUALITY = 0.7;
+
 
     const cleanupAudio = () => {
+        if (frameIntervalRef.current) {
+            clearInterval(frameIntervalRef.current);
+            frameIntervalRef.current = null;
+        }
         if (scriptProcessorRef.current && mediaStreamSourceRef.current) {
             scriptProcessorRef.current.disconnect();
             mediaStreamSourceRef.current.disconnect();
@@ -917,8 +1244,12 @@ const App: React.FC = () => {
         setHistory([]);
         
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
             mediaStreamRef.current = stream;
+
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+            }
 
             // FIX: Cast window to `any` to allow access to the vendor-prefixed `webkitAudioContext` for broader browser compatibility.
             inputAudioContextRef.current = new ((window as any).AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
@@ -950,6 +1281,34 @@ const App: React.FC = () => {
                         };
                         source.connect(scriptProcessor);
                         scriptProcessor.connect(inputAudioContextRef.current!.destination);
+
+                        // Start video frame streaming
+                        if (videoRef.current && canvasRef.current) {
+                            const videoEl = videoRef.current;
+                            const canvasEl = canvasRef.current;
+                            const ctx = canvasEl.getContext('2d');
+
+                            frameIntervalRef.current = window.setInterval(() => {
+                                if (!ctx || videoEl.readyState < 2) return; // Ensure video is ready
+                                canvasEl.width = videoEl.videoWidth;
+                                canvasEl.height = videoEl.videoHeight;
+                                ctx.drawImage(videoEl, 0, 0, videoEl.videoWidth, videoEl.videoHeight);
+                                canvasEl.toBlob(
+                                    async (blob) => {
+                                        if (blob && sessionRef.current) {
+                                            const base64Data = await blobToBase64(blob);
+                                            sessionRef.current.then((session) => {
+                                              session.sendRealtimeInput({
+                                                media: { data: base64Data, mimeType: 'image/jpeg' }
+                                              });
+                                            });
+                                        }
+                                    },
+                                    'image/jpeg',
+                                    JPEG_QUALITY
+                                );
+                            }, 1000 / FRAME_RATE);
+                        }
                     },
                     onmessage: async (message: LiveServerMessage) => {
                         let tempInput = '';
@@ -1021,7 +1380,7 @@ const App: React.FC = () => {
 
         } catch (err) {
             console.error("Failed to start live session:", err);
-            setErrorMessage("Could not access microphone. Please grant permission and try again.");
+            setErrorMessage("Could not access microphone and webcam. Please grant permission and try again.");
             setConnectionState('error');
         }
     };
@@ -1060,6 +1419,10 @@ const App: React.FC = () => {
                     <div className="live-header">
                         <h2>🤖 Live AI Conversation</h2>
                         {renderStatusIndicator()}
+                    </div>
+                    <div className="live-video-container">
+                        <video ref={videoRef} autoPlay muted playsInline className="live-video-feed"></video>
+                        <canvas ref={canvasRef} style={{ display: 'none' }}></canvas>
                     </div>
                     <div className="transcription-area">
                         {history.length === 0 && connectionState === 'disconnected' && !currentInput && !currentOutput &&(
