@@ -1,26 +1,263 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Aivio - AI Video Platform</title>
-    <link rel="stylesheet" href="index.css" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
-  <script type="importmap">
-{
-  "imports": {
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.27.0"
-  }
-}
-</script>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aivio - Share your videos</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
 </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="index.tsx"></script>
-  </body>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="menu-toggle">
+                <i class="fas fa-bars"></i>
+            </div>
+            <div class="logo-container">
+                <a href="#" class="logo">
+                    <i class="fas fa-play-circle"></i>
+                    <span class="logo-text">Aivio</span>
+                </a>
+            </div>
+        </div>
+        
+        <div class="search-container">
+            <form class="search-form">
+                <input type="text" class="search-input" placeholder="Search">
+                <button type="submit" class="search-button">
+                    <i class="fas fa-search"></i>
+                </button>
+            </form>
+        </div>
+        
+       <div class="user-actions">
+    <button class="icon-button" title="Create">
+        <i class="fas fa-video"></i>
+    </button>
+    <button class="icon-button" title="Notifications">
+        <i class="fas fa-bell"></i>
+    </button>
+    <button class="upload-btn">Upload</button>
+    <!-- CLICKABLE USER AVATAR THAT GOES TO SIGN IN -->
+    <a href="signin.html" class="user-avatar-link">
+        <div class="user-avatar">
+            <i class="fas fa-user-circle"></i>
+        </div>
+    </a>
+</div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Sidebar -->
+        <nav class="sidebar">
+            <div class="sidebar-section">
+                <a href="#" class="sidebar-item active">
+                    <i class="fas fa-home"></i>
+                    <span class="sidebar-text">Home</span>
+                </a>
+                <a href="#" class="sidebar-item">
+                    <i class="fas fa-fire"></i>
+                    <span class="sidebar-text">Trending</span>
+                </a>
+                <a href="#" class="sidebar-item">
+                    <i class="fas fa-folder"></i>
+                    <span class="sidebar-text">Subscriptions</span>
+                </a>
+            </div>
+            
+            <div class="sidebar-section">
+                <div class="sidebar-heading">Library</div>
+                <a href="#" class="sidebar-item">
+                    <i class="fas fa-history"></i>
+                    <span class="sidebar-text">History</span>
+                </a>
+                <a href="#" class="sidebar-item">
+                    <i class="fas fa-clock"></i>
+                    <span class="sidebar-text">Watch Later</span>
+                </a>
+                <a href="#" class="sidebar-item">
+                    <i class="fas fa-thumbs-up"></i>
+                    <span class="sidebar-text">Liked Videos</span>
+                </a>
+            </div>
+            
+            <div class="sidebar-section">
+                <div class="sidebar-heading">Subscriptions</div>
+                <a href="#" class="sidebar-item">
+                    <div class="channel-avatar-small">C1</div>
+                    <span class="sidebar-text">Channel One</span>
+                </a>
+                <a href="#" class="sidebar-item">
+                    <div class="channel-avatar-small">T2</div>
+                    <span class="sidebar-text">Tech Today</span>
+                </a>
+                <a href="#" class="sidebar-item">
+                    <div class="channel-avatar-small">GC</div>
+                    <span class="sidebar-text">Gaming Central</span>
+                </a>
+                <a href="#" class="sidebar-item">
+                    <div class="channel-avatar-small">MC</div>
+                    <span class="sidebar-text">Music Channel</span>
+                </a>
+            </div>
+        </nav>
+
+        <!-- Content Area -->
+        <main class="content">
+            <!-- Category Filters -->
+            <div class="category-filters">
+                <div class="filter-item active">All</div>
+                <div class="filter-item">Music</div>
+                <div class="filter-item">Gaming</div>
+                <div class="filter-item">Live</div>
+                <div class="filter-item">Recently uploaded</div>
+                <div class="filter-item">Watched</div>
+                <div class="filter-item">New to you</div>
+                <div class="filter-item">AI Videos</div>
+                <div class="filter-item">Comedy</div>
+                <div class="filter-item">Cooking</div>
+                <div class="filter-item">Sports</div>
+            </div>
+
+            <!-- Video Grid -->
+            <div class="video-grid">
+                <!-- Video Card 1 -->
+                <div class="video-card" data-video-id="1">
+                    <div class="thumbnail">
+                        <div class="thumbnail-image" style="background: linear-gradient(135deg, #1a73e8, #0d47a1);"></div>
+                        <div class="video-duration">10:25</div>
+                    </div>
+                    <div class="video-info">
+                        <div class="channel-avatar">A1</div>
+                        <div class="video-details">
+                            <h3 class="video-title">Introduction to Aivio - The Future of Video Sharing</h3>
+                            <p class="channel-name">Aivio Official</p>
+                            <p class="video-meta">125K views • 2 days ago</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Video Card 2 -->
+                <div class="video-card" data-video-id="2">
+                    <div class="thumbnail">
+                        <div class="thumbnail-image" style="background: linear-gradient(135deg, #0d47a1, #42a5f5);"></div>
+                        <div class="video-duration">15:42</div>
+                    </div>
+                    <div class="video-info">
+                        <div class="channel-avatar">T2</div>
+                        <div class="video-details">
+                            <h3 class="video-title">Top 10 Tech Innovations of 2023 - Amazing AI Breakthroughs</h3>
+                            <p class="channel-name">Tech Today</p>
+                            <p class="video-meta">342K views • 1 week ago</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Video Card 3 -->
+                <div class="video-card" data-video-id="3">
+                    <div class="thumbnail">
+                        <div class="thumbnail-image" style="background: linear-gradient(135deg, #42a5f5, #90caf9);"></div>
+                        <div class="video-duration">8:15</div>
+                    </div>
+                    <div class="video-info">
+                        <div class="channel-avatar">GC</div>
+                        <div class="video-details">
+                            <h3 class="video-title">Gaming on the New Aivio Platform - First Look and Review</h3>
+                            <p class="channel-name">Gaming Central</p>
+                            <p class="video-meta">89K views • 3 days ago</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Video Card 4 -->
+                <div class="video-card" data-video-id="4">
+                    <div class="thumbnail">
+                        <div class="thumbnail-image" style="background: linear-gradient(135deg, #1565c0, #1e88e5);"></div>
+                        <div class="video-duration">22:30</div>
+                    </div>
+                    <div class="video-info">
+                        <div class="channel-avatar">MC</div>
+                        <div class="video-details">
+                            <h3 class="video-title">Chill Vibes: Lo-Fi Music Mix for Study & Relaxation - 24/7 Stream</h3>
+                            <p class="channel-name">Music Channel</p>
+                            <p class="video-meta">1.2M views • 1 month ago</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Video Card 5 -->
+                <div class="video-card" data-video-id="5">
+                    <div class="thumbnail">
+                        <div class="thumbnail-image" style="background: linear-gradient(135deg, #1976d2, #2196f3);"></div>
+                        <div class="video-duration">12:05</div>
+                    </div>
+                    <div class="video-info">
+                        <div class="channel-avatar">C1</div>
+                        <div class="video-details">
+                            <h3 class="video-title">How to Create Amazing Content on Aivio - Complete Tutorial</h3>
+                            <p class="channel-name">Channel One</p>
+                            <p class="video-meta">56K views • 5 days ago</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Video Card 6 -->
+                <div class="video-card" data-video-id="6">
+                    <div class="thumbnail">
+                        <div class="thumbnail-image" style="background: linear-gradient(135deg, #0d47a1, #1565c0);"></div>
+                        <div class="video-duration">18:42</div>
+                    </div>
+                    <div class="video-info">
+                        <div class="channel-avatar">T2</div>
+                        <div class="video-details">
+                            <h3 class="video-title">The Future of AI in Video Creation - Revolutionary Tools</h3>
+                            <p class="channel-name">Tech Today</p>
+                            <p class="video-meta">210K views • 2 weeks ago</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Video Card 7 -->
+                <div class="video-card" data-video-id="7">
+                    <div class="thumbnail">
+                        <div class="thumbnail-image" style="background: linear-gradient(135deg, #42a5f5, #64b5f6);"></div>
+                        <div class="video-duration">9:15</div>
+                    </div>
+                    <div class="video-info">
+                        <div class="channel-avatar">GC</div>
+                        <div class="video-details">
+                            <h3 class="video-title">5 Tips to Grow Your Gaming Channel on Aivio - Expert Advice</h3>
+                            <p class="channel-name">Gaming Central</p>
+                            <p class="video-meta">75K views • 4 days ago</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Video Card 8 -->
+                <div class="video-card" data-video-id="8">
+                    <div class="thumbnail">
+                        <div class="thumbnail-image" style="background: linear-gradient(135deg, #1565c0, #1976d2);"></div>
+                        <div class="video-duration">25:10</div>
+                    </div>
+                    <div class="video-info">
+                        <div class="channel-avatar">MC</div>
+                        <div class="video-details">
+                            <h3 class="video-title">Best of 2023: Music Hits Compilation - Top Chart Songs</h3>
+                            <p class="channel-name">Music Channel</p>
+                            <p class="video-meta">850K views • 3 weeks ago</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- JavaScript Files -->
+    <script src="js/utils.js"></script>
+    <script src="js/services.js"></script>
+    <script src="js/script.js"></script>
+</body>
 </html>
